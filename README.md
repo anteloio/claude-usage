@@ -14,7 +14,7 @@ claude plan usage · max
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/anteloio/claude-usage/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/anteloio/claude-usage/main/install.py | python3
 ```
 
 That clones into `~/.local/share/claude-usage`, symlinks `claude-usage` into
@@ -25,7 +25,7 @@ install. Set `CLAUDE_USAGE_DIR` to clone somewhere else.
 From a checkout it does the same thing without cloning:
 
 ```sh
-git clone https://github.com/anteloio/claude-usage && cd claude-usage && ./install.sh
+git clone https://github.com/anteloio/claude-usage && cd claude-usage && ./install.py
 ```
 
 macOS only for now: the OAuth token is read from the login keychain.
