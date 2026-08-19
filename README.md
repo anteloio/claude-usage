@@ -14,25 +14,32 @@ claude plan usage · max
 ## Install
 
 ```sh
-git clone <this repo> ~/projects/claude-usage
-cd ~/projects/claude-usage && ./install.sh
+curl -fsSL https://raw.githubusercontent.com/anteloio/claude-usage/main/install.sh | bash
 ```
 
-That symlinks `claude-usage` into `~/.local/bin` and appends a hook to `~/.zshrc`
-so every new shell opens with the report. Both steps are idempotent.
+That clones into `~/.local/share/claude-usage`, symlinks `claude-usage` into
+`~/.local/bin` and appends a hook to `~/.zshrc` so every new shell opens with the
+report. Every step is idempotent, so rerunning it also updates an existing
+install. Set `CLAUDE_USAGE_DIR` to clone somewhere else.
+
+From a checkout it does the same thing without cloning:
+
+```sh
+git clone https://github.com/anteloio/claude-usage && cd claude-usage && ./install.sh
+```
 
 macOS only for now: the OAuth token is read from the login keychain.
 
 ## Usage
 
-| command | what it does |
-| --- | --- |
-| `claude-usage` | report, refreshing only if the cache is older than 10 minutes |
-| `claude-usage --cached` | print instantly from cache, refresh in the background |
-| `claude-usage --fresh` | force a refresh now |
-| `claude-usage --oneline` | `5h 15% · 7d 32% · fable 14%` |
-| `claude-usage --json` | the raw endpoint payload |
-| `claude-usage --watch` | redraw every 60s |
+| command                  | what it does                                                  |
+| ------------------------ | ------------------------------------------------------------- |
+| `claude-usage`           | report, refreshing only if the cache is older than 10 minutes |
+| `claude-usage --cached`  | print instantly from cache, refresh in the background         |
+| `claude-usage --fresh`   | force a refresh now                                           |
+| `claude-usage --oneline` | `5h 15% · 7d 32% · fable 14%`                                 |
+| `claude-usage --json`    | the raw endpoint payload                                      |
+| `claude-usage --watch`   | redraw every 60s                                              |
 
 `cu` is aliased to `claude-usage --fresh`.
 
