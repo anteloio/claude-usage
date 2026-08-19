@@ -9,6 +9,7 @@ built to touch it as rarely as possible and to never turn a 429 into an error
 on your prompt. See README.md.
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -263,21 +264,31 @@ def render_oneline(state, warning):
 # --- entrypoint --------------------------------------------------------------
 
 
-USAGE = """claude-usage - how much of your Claude plan is gone
+class Parser(argparse.ArgumentParser):
+    """A bad flag gets you the whole help, not argparse's one-line usage."""
 
-  claude-usage            the report, printed from cache and refreshed behind you
-  claude-usage --oneline  one line, for a prompt or a script
-"""
+    def error(self, message):
+        self.print_help(sys.stderr)
+        self.exit(2, f"\n{self.prog}: {message}\n")
+
+
+def parse_args(argv):
+    parser = Parser(
+        prog="claude-usage",
+        description="How much of your Claude plan is gone.",
+        epilog="The report is printed from cache and refreshed behind you, "
+        f"so the numbers are at most {TTL // 60} minutes old.",
+    )
+    parser.add_argument("--oneline", action="store_true", help="one line, for a prompt or a script")
+    # How the backgrounded refresh re-enters this script. Not for humans.
+    parser.add_argument("--refresh-only", action="store_true", help=argparse.SUPPRESS)
+    return parser.parse_args(argv)
 
 
 def main():
-    args = set(sys.argv[1:])
+    args = parse_args(sys.argv[1:])
 
-    if args & {"-h", "--help"}:
-        print(USAGE)
-        return
-
-    if "--refresh-only" in args:
+    if args.refresh_only:
         state = load_state()
         if not blocked_for(state):
             try:
@@ -295,7 +306,7 @@ def main():
     except RateLimited as err:
         sys.exit(f"claude-usage: {err} and nothing is cached yet")
 
-    if "--oneline" in args:
+    if args.oneline:
         line = render_oneline(state, warning)
         if line:
             print(line)

@@ -11,6 +11,7 @@ duplicating it.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -23,14 +24,16 @@ BIN_DIR = Path.home() / ".local/bin"
 TARGET = BIN_DIR / COMMAND
 ZSHRC = Path.home() / ".zshrc"
 
-# Both the anchor we grep for on a rerun and the comment the block opens with.
-MARKER = f"# {COMMAND}"
+# Sentinels, so a rerun can find its own block and replace it.
+BEGIN = f"# {COMMAND} >>> plan usage on every new shell, served from cache"
+END = f"# {COMMAND} <<<"
 HOOK = f"""
-{MARKER}: plan usage on every new shell, served from cache
+{BEGIN}
 alias cu='{COMMAND}'
 if [[ -o interactive ]] && command -v {COMMAND} >/dev/null; then
   {COMMAND}
 fi
+{END}
 """
 
 
@@ -72,13 +75,23 @@ def link_command(source):
         print(f"warning: {BIN_DIR} is not on your PATH")
 
 
+def find_old_hook(rc):
+    """The block a previous run wrote, sentinels or - before those existed - up to its `fi`."""
+    between_sentinels = rf"\n?{re.escape(BEGIN)}.*?{re.escape(END)}\n?"
+    up_to_fi = rf"\n?# {re.escape(COMMAND)}:.*?\nfi\n?"
+    return re.search(between_sentinels, rc, re.DOTALL) or re.search(up_to_fi, rc, re.DOTALL)
+
+
 def add_shell_hook():
-    if ZSHRC.is_file() and MARKER in ZSHRC.read_text():
-        print(f"shell hook already present in {ZSHRC}")
+    rc = ZSHRC.read_text() if ZSHRC.is_file() else ""
+    old = find_old_hook(rc)
+
+    if old and old.group() == HOOK:
+        print(f"shell hook already current in {ZSHRC}")
         return
-    with ZSHRC.open("a") as rc:
-        rc.write(HOOK)
-    print(f"added the shell hook to {ZSHRC}")
+
+    ZSHRC.write_text(rc[: old.start()] + HOOK + rc[old.end() :] if old else rc + HOOK)
+    print(f"{'replaced the outdated' if old else 'added the'} shell hook in {ZSHRC}")
 
 
 def main():

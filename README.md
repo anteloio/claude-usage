@@ -19,8 +19,9 @@ curl -fsSL https://raw.githubusercontent.com/anteloio/claude-usage/main/install.
 
 That clones into `~/.local/share/claude-usage`, symlinks `claude-usage` into
 `~/.local/bin` and appends a hook to `~/.zshrc` so every new shell opens with the
-report. Every step is idempotent, so rerunning it also updates an existing
-install. Set `CLAUDE_USAGE_DIR` to clone somewhere else.
+report. Every step is idempotent: rerunning it updates the checkout and rewrites
+the `.zshrc` block if this repo has changed it. Set `CLAUDE_USAGE_DIR` to clone
+somewhere else.
 
 From a checkout it does the same thing without cloning:
 
@@ -32,10 +33,10 @@ macOS only for now: the OAuth token is read from the login keychain.
 
 ## Usage
 
-| command                  | what it does                                          |
-| ------------------------ | ----------------------------------------------------- |
+| command                  | what it does                                            |
+| ------------------------ | ------------------------------------------------------- |
 | `claude-usage`           | the report, printed from cache and refreshed behind you |
-| `claude-usage --oneline` | `5h 15% · 7d 32% · fable 14%`                         |
+| `claude-usage --oneline` | `5h 15% · 7d 32% · fable 14%`                           |
 
 `cu` is aliased to `claude-usage`.
 
