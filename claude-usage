@@ -21,7 +21,7 @@ from datetime import datetime
 ENDPOINT = "https://api.anthropic.com/api/oauth/usage"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 
-STATE_DIR = os.path.expanduser("~/.cache/claude-limits")
+STATE_DIR = os.path.expanduser("~/.cache/claude-usage")
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
 
 # The numbers move slowly and the endpoint punishes polling, so this is minutes, not seconds.
@@ -239,7 +239,7 @@ def render_full(state, warning):
 
     width = max(len(label) for label, _, _, _ in rows)
     plan = state.get("subscription") or "unknown"
-    lines = [f"{paint('claude plan limits', BOLD)} {paint('· ' + plan, DIM)}", ""]
+    lines = [f"{paint('claude plan usage', BOLD)} {paint('· ' + plan, DIM)}", ""]
     for label, _, pct, resets in rows:
         filled = min(BAR_WIDTH, round(pct / 100 * BAR_WIDTH))
         bar = "█" * filled + "·" * (BAR_WIDTH - filled)
@@ -274,14 +274,14 @@ def render_oneline(state, warning):
 # --- entrypoint --------------------------------------------------------------
 
 
-USAGE = """claude-limits - how much of your Claude plan is gone
+USAGE = """claude-usage - how much of your Claude plan is gone
 
-  claude-limits            report, refreshing only if the cache is older than 10m
-  claude-limits --cached   print instantly from cache, refresh in the background
-  claude-limits --fresh    force a refresh now
-  claude-limits --oneline  one line, for a prompt or a script
-  claude-limits --json     the raw endpoint payload
-  claude-limits --watch    redraw every 60s
+  claude-usage            report, refreshing only if the cache is older than 10m
+  claude-usage --cached   print instantly from cache, refresh in the background
+  claude-usage --fresh    force a refresh now
+  claude-usage --oneline  one line, for a prompt or a script
+  claude-usage --json     the raw endpoint payload
+  claude-usage --watch    redraw every 60s
 """
 
 
@@ -319,9 +319,9 @@ def main():
     try:
         state, warning = resolve(mode)
     except Unauthorized as err:
-        sys.exit(f"claude-limits: {err}")
+        sys.exit(f"claude-usage: {err}")
     except RateLimited as err:
-        sys.exit(f"claude-limits: {err} and nothing is cached yet")
+        sys.exit(f"claude-usage: {err} and nothing is cached yet")
 
     if "--json" in args:
         print(json.dumps(state.get("data") or {}, indent=2))

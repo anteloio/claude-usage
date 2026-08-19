@@ -1,10 +1,10 @@
-# claude-limits
+# claude-usage
 
 How much of your Claude plan is gone, printed in your terminal instead of hidden
 behind `/usage` inside a Claude Code session.
 
 ```
-claude plan limits · max
+claude plan usage · max
 
   session (5h)       ████····················  15%  resets in 1h52m
   week (all models)  ████████················  32%  resets in 8h52m
@@ -14,11 +14,11 @@ claude plan limits · max
 ## Install
 
 ```sh
-git clone <this repo> ~/projects/claude-limits
-cd ~/projects/claude-limits && ./install.sh
+git clone <this repo> ~/projects/claude-usage
+cd ~/projects/claude-usage && ./install.sh
 ```
 
-That symlinks `claude-limits` into `~/.local/bin` and appends a hook to `~/.zshrc`
+That symlinks `claude-usage` into `~/.local/bin` and appends a hook to `~/.zshrc`
 so every new shell opens with the report. Both steps are idempotent.
 
 macOS only for now: the OAuth token is read from the login keychain.
@@ -27,21 +27,21 @@ macOS only for now: the OAuth token is read from the login keychain.
 
 | command | what it does |
 | --- | --- |
-| `claude-limits` | report, refreshing only if the cache is older than 10 minutes |
-| `claude-limits --cached` | print instantly from cache, refresh in the background |
-| `claude-limits --fresh` | force a refresh now |
-| `claude-limits --oneline` | `5h 15% · 7d 32% · fable 14%` |
-| `claude-limits --json` | the raw endpoint payload |
-| `claude-limits --watch` | redraw every 60s |
+| `claude-usage` | report, refreshing only if the cache is older than 10 minutes |
+| `claude-usage --cached` | print instantly from cache, refresh in the background |
+| `claude-usage --fresh` | force a refresh now |
+| `claude-usage --oneline` | `5h 15% · 7d 32% · fable 14%` |
+| `claude-usage --json` | the raw endpoint payload |
+| `claude-usage --watch` | redraw every 60s |
 
-`cl` is aliased to `claude-limits --fresh`.
+`cu` is aliased to `claude-usage --fresh`.
 
 ## Where the numbers come from
 
 `GET https://api.anthropic.com/api/oauth/usage`, the same endpoint the built-in
 `/usage` screen reads, authenticated with the OAuth token Claude Code already
 stores in the keychain under `Claude Code-credentials`. Nothing is sent anywhere
-else and nothing is written outside `~/.cache/claude-limits`.
+else and nothing is written outside `~/.cache/claude-usage`.
 
 The endpoint is undocumented and can change without notice.
 
@@ -66,7 +66,7 @@ recovers, so three things guard against it:
 minute was never worth anything.
 
 **Backoff persisted to disk.** On a 429 the next allowed attempt is written to
-`~/.cache/claude-limits/state.json` and grows 5m → 10m → 20m → 1h, reset on the
+`~/.cache/claude-usage/state.json` and grows 5m → 10m → 20m → 1h, reset on the
 first success. It has to live on disk: every new shell is a fresh process, so
 in-memory backoff would be no backoff at all.
 

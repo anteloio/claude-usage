@@ -4,13 +4,13 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bin_dir="${HOME}/.local/bin"
-target="${bin_dir}/claude-limits"
-marker="# claude-limits"
+target="${bin_dir}/claude-usage"
+marker="# claude-usage"
 
 mkdir -p "$bin_dir"
-ln -sfn "${repo}/claude-limits" "$target"
-chmod +x "${repo}/claude-limits"
-echo "linked ${target} -> ${repo}/claude-limits"
+ln -sfn "${repo}/claude-usage" "$target"
+chmod +x "${repo}/claude-usage"
+echo "linked ${target} -> ${repo}/claude-usage"
 
 case ":${PATH}:" in
   *":${bin_dir}:"*) ;;
@@ -24,9 +24,9 @@ else
   cat >> "$rc" <<EOF
 
 ${marker}: plan usage on every new shell, served from cache
-alias cl='claude-limits --fresh'
-if [[ -o interactive ]] && command -v claude-limits >/dev/null; then
-  claude-limits --cached
+alias cu='claude-usage --fresh'
+if [[ -o interactive ]] && command -v claude-usage >/dev/null; then
+  claude-usage --cached
 fi
 EOF
   echo "added the shell hook to ${rc}"
