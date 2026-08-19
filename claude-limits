@@ -1,0 +1,337 @@
+#!/usr/bin/env python3
+"""How much of the Claude plan is gone, in the terminal.
+
+Reads GET /api/oauth/usage, the same endpoint the built-in /usage screen uses,
+authenticated with the OAuth token Claude Code already keeps in the keychain.
+
+That endpoint rate-limits hard and gives no Retry-After, so everything here is
+built to touch it as rarely as possible and to never turn a 429 into an error
+on your prompt. See README.md.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime
+
+ENDPOINT = "https://api.anthropic.com/api/oauth/usage"
+KEYCHAIN_SERVICE = "Claude Code-credentials"
+
+STATE_DIR = os.path.expanduser("~/.cache/claude-limits")
+STATE_FILE = os.path.join(STATE_DIR, "state.json")
+
+# The numbers move slowly and the endpoint punishes polling, so this is minutes, not seconds.
+TTL = 600
+# Doubling-ish backoff after a 429, persisted to disk because every shell is a fresh process.
+BACKOFF_STEPS = [300, 600, 1200, 3600]
+
+BAR_WIDTH = 24
+RESET = "\033[0m"
+DIM = "\033[2m"
+BOLD = "\033[1m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+
+
+def color_for(pct):
+    if pct >= 90:
+        return RED
+    if pct >= 60:
+        return YELLOW
+    return GREEN
+
+
+def paint(text, *codes):
+    if not sys.stdout.isatty():
+        return text
+    return "".join(codes) + text + RESET
+
+
+# --- state -------------------------------------------------------------------
+
+
+def load_state():
+    try:
+        with open(STATE_FILE) as fh:
+            state = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def save_state(state):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = f"{STATE_FILE}.{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(state, fh)
+    os.replace(tmp, STATE_FILE)
+
+
+def blocked_for(state):
+    """Seconds left on the 429 backoff, 0 when clear."""
+    return max(0, int((state.get("backoff") or {}).get("until", 0) - time.time()))
+
+
+def note_rate_limited(state):
+    level = min((state.get("backoff") or {}).get("level", 0) + 1, len(BACKOFF_STEPS))
+    state["backoff"] = {"level": level, "until": time.time() + BACKOFF_STEPS[level - 1]}
+    save_state(state)
+
+
+# --- fetching ----------------------------------------------------------------
+
+
+class Unauthorized(Exception):
+    pass
+
+
+class RateLimited(Exception):
+    pass
+
+
+def read_token():
+    out = subprocess.run(
+        ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+        capture_output=True,
+        text=True,
+    )
+    if out.returncode != 0:
+        raise Unauthorized("could not read the Claude Code credentials from the keychain")
+    oauth = (json.loads(out.stdout) or {}).get("claudeAiOauth") or {}
+    if not oauth.get("accessToken"):
+        raise Unauthorized("no Claude.ai OAuth token found - log in with `claude` first")
+    return oauth["accessToken"], oauth.get("subscriptionType")
+
+
+def call_endpoint():
+    token, subscription = read_token()
+    req = urllib.request.Request(
+        ENDPOINT,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "anthropic-beta": "oauth-2025-04-20",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.load(resp), subscription
+    except urllib.error.HTTPError as err:
+        if err.code == 429:
+            raise RateLimited("the usage endpoint is rate limiting")
+        if err.code == 401:
+            raise Unauthorized("token expired - start any `claude` session to refresh it")
+        raise RateLimited(f"usage endpoint returned HTTP {err.code}")
+    except urllib.error.URLError as err:
+        raise RateLimited(f"could not reach the usage endpoint: {err.reason}")
+
+
+def refresh(state):
+    """Fetch and persist. Returns the state; leaves old data in place on failure."""
+    data, subscription = call_endpoint()
+    state["data"] = data
+    state["subscription"] = subscription
+    state["fetched_at"] = time.time()
+    state["backoff"] = {"level": 0, "until": 0}
+    save_state(state)
+    return state
+
+
+def spawn_refresh():
+    with open(os.devnull, "w") as null:
+        subprocess.Popen(
+            [sys.executable, os.path.realpath(__file__), "--refresh-only"],
+            stdout=null,
+            stderr=null,
+            start_new_session=True,
+        )
+
+
+def resolve(mode):
+    """mode: 'fresh' forces now, 'cached' never blocks, 'auto' fetches only when stale."""
+    state = load_state()
+    age = time.time() - state.get("fetched_at", 0) if state.get("data") else None
+    stale = age is None or age >= TTL
+
+    if mode == "cached":
+        if stale and not blocked_for(state) and state.get("data"):
+            spawn_refresh()
+        if state.get("data"):
+            return state, None
+        # Nothing cached at all: one blocking fetch, so the first run is not empty.
+        mode = "auto"
+
+    if mode == "fresh" or stale:
+        waiting = blocked_for(state)
+        if waiting and mode != "fresh":
+            return state, f"backing off for {fmt_short(waiting)}"
+        if waiting:
+            return state, f"rate limited, retrying in {fmt_short(waiting)}"
+        try:
+            return refresh(state), None
+        except RateLimited as err:
+            note_rate_limited(state)
+            if not state.get("data"):
+                raise
+            return state, str(err)
+
+    return state, None
+
+
+# --- rendering ---------------------------------------------------------------
+
+
+def parse_reset(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def fmt_short(seconds):
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    hours, minutes = divmod(seconds // 60, 60)
+    days, hours = divmod(hours, 24)
+    if days:
+        return f"{days}d{hours}h"
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    return f"{minutes}m"
+
+
+def buckets(data):
+    """Flatten limits[] the way the built-in /usage screen does."""
+    rows = []
+    for limit in data.get("limits") or []:
+        kind = limit.get("kind")
+        if kind == "session":
+            label, short = "session (5h)", "5h"
+        elif kind == "weekly_all":
+            label, short = "week (all models)", "7d"
+        elif kind == "weekly_scoped":
+            model = ((limit.get("scope") or {}).get("model") or {}).get("display_name") or "scoped"
+            label, short = f"week ({model})", model.lower()
+        else:
+            continue
+        rows.append((label, short, float(limit.get("percent") or 0), parse_reset(limit.get("resets_at"))))
+    return rows
+
+
+def staleness(state):
+    age = time.time() - state.get("fetched_at", 0)
+    return f"as of {fmt_short(age)} ago" if age >= TTL else None
+
+
+def render_full(state, warning):
+    data = state.get("data") or {}
+    rows = buckets(data)
+    if not rows:
+        return "no plan limits reported (API key session, or limits not applicable)"
+
+    width = max(len(label) for label, _, _, _ in rows)
+    plan = state.get("subscription") or "unknown"
+    lines = [f"{paint('claude plan limits', BOLD)} {paint('· ' + plan, DIM)}", ""]
+    for label, _, pct, resets in rows:
+        filled = min(BAR_WIDTH, round(pct / 100 * BAR_WIDTH))
+        bar = "█" * filled + "·" * (BAR_WIDTH - filled)
+        col = color_for(pct)
+        countdown = f"resets in {fmt_short(resets - time.time())}" if resets and resets > time.time() else ""
+        lines.append(f"  {label:<{width}}  {paint(bar, col)} {paint(f'{pct:>3.0f}%', col)}  {paint(countdown, DIM)}")
+
+    spend = data.get("spend") or {}
+    if spend.get("enabled"):
+        used = (spend.get("used") or {}).get("amount_minor", 0) / 100
+        lines.append("")
+        lines.append(paint(f"  usage credits: ${used:.2f} used ({spend.get('percent', 0)}%)", DIM))
+
+    footer = " · ".join(part for part in (staleness(state), warning) if part)
+    if footer:
+        lines.append("")
+        lines.append(paint(f"  {footer}", DIM))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_oneline(state, warning):
+    rows = buckets(state.get("data") or {})
+    if not rows:
+        return ""
+    parts = [paint(f"{short} {pct:.0f}%", color_for(pct)) for _, short, pct, _ in rows]
+    line = f" {paint('·', DIM)} ".join(parts)
+    stale = staleness(state)
+    return f"{line} {paint('(' + stale + ')', DIM)}" if stale else line
+
+
+# --- entrypoint --------------------------------------------------------------
+
+
+USAGE = """claude-limits - how much of your Claude plan is gone
+
+  claude-limits            report, refreshing only if the cache is older than 10m
+  claude-limits --cached   print instantly from cache, refresh in the background
+  claude-limits --fresh    force a refresh now
+  claude-limits --oneline  one line, for a prompt or a script
+  claude-limits --json     the raw endpoint payload
+  claude-limits --watch    redraw every 60s
+"""
+
+
+def main():
+    args = set(sys.argv[1:])
+
+    if args & {"-h", "--help"}:
+        print(USAGE)
+        return
+
+    if "--refresh-only" in args:
+        state = load_state()
+        if not blocked_for(state):
+            try:
+                refresh(state)
+            except RateLimited:
+                note_rate_limited(state)
+            except Unauthorized:
+                pass
+        return
+
+    mode = "fresh" if "--fresh" in args else "cached" if "--cached" in args else "auto"
+
+    if "--watch" in args:
+        try:
+            while True:
+                state, warning = resolve("auto")
+                sys.stdout.write("\033[H\033[2J" + render_full(state, warning))
+                sys.stdout.flush()
+                time.sleep(60)
+        except KeyboardInterrupt:
+            print()
+        return
+
+    try:
+        state, warning = resolve(mode)
+    except Unauthorized as err:
+        sys.exit(f"claude-limits: {err}")
+    except RateLimited as err:
+        sys.exit(f"claude-limits: {err} and nothing is cached yet")
+
+    if "--json" in args:
+        print(json.dumps(state.get("data") or {}, indent=2))
+    elif "--oneline" in args:
+        line = render_oneline(state, warning)
+        if line:
+            print(line)
+    else:
+        print(render_full(state, warning))
+
+
+if __name__ == "__main__":
+    main()
