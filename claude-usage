@@ -152,35 +152,24 @@ def spawn_refresh():
         )
 
 
-def resolve(mode):
-    """mode: 'fresh' forces now, 'cached' never blocks, 'auto' fetches only when stale."""
+def resolve():
+    """Print what is on disk and refresh behind you. Blocks only when nothing is cached."""
     state = load_state()
-    age = time.time() - state.get("fetched_at", 0) if state.get("data") else None
-    stale = age is None or age >= TTL
+    waiting = blocked_for(state)
 
-    if mode == "cached":
-        if stale and not blocked_for(state) and state.get("data"):
+    if state.get("data"):
+        if time.time() - state.get("fetched_at", 0) >= TTL and not waiting:
             spawn_refresh()
-        if state.get("data"):
-            return state, None
-        # Nothing cached at all: one blocking fetch, so the first run is not empty.
-        mode = "auto"
+        return state, None
 
-    if mode == "fresh" or stale:
-        waiting = blocked_for(state)
-        if waiting and mode != "fresh":
-            return state, f"backing off for {fmt_short(waiting)}"
-        if waiting:
-            return state, f"rate limited, retrying in {fmt_short(waiting)}"
-        try:
-            return refresh(state), None
-        except RateLimited as err:
-            note_rate_limited(state)
-            if not state.get("data"):
-                raise
-            return state, str(err)
-
-    return state, None
+    # Nothing cached at all: one blocking fetch, so the first run is not empty.
+    if waiting:
+        return state, f"backing off for {fmt_short(waiting)}"
+    try:
+        return refresh(state), None
+    except RateLimited:
+        note_rate_limited(state)
+        raise
 
 
 # --- rendering ---------------------------------------------------------------
@@ -276,12 +265,8 @@ def render_oneline(state, warning):
 
 USAGE = """claude-usage - how much of your Claude plan is gone
 
-  claude-usage            report, refreshing only if the cache is older than 10m
-  claude-usage --cached   print instantly from cache, refresh in the background
-  claude-usage --fresh    force a refresh now
+  claude-usage            the report, printed from cache and refreshed behind you
   claude-usage --oneline  one line, for a prompt or a script
-  claude-usage --json     the raw endpoint payload
-  claude-usage --watch    redraw every 60s
 """
 
 
@@ -303,29 +288,14 @@ def main():
                 pass
         return
 
-    mode = "fresh" if "--fresh" in args else "cached" if "--cached" in args else "auto"
-
-    if "--watch" in args:
-        try:
-            while True:
-                state, warning = resolve("auto")
-                sys.stdout.write("\033[H\033[2J" + render_full(state, warning))
-                sys.stdout.flush()
-                time.sleep(60)
-        except KeyboardInterrupt:
-            print()
-        return
-
     try:
-        state, warning = resolve(mode)
+        state, warning = resolve()
     except Unauthorized as err:
         sys.exit(f"claude-usage: {err}")
     except RateLimited as err:
         sys.exit(f"claude-usage: {err} and nothing is cached yet")
 
-    if "--json" in args:
-        print(json.dumps(state.get("data") or {}, indent=2))
-    elif "--oneline" in args:
+    if "--oneline" in args:
         line = render_oneline(state, warning)
         if line:
             print(line)

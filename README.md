@@ -32,16 +32,12 @@ macOS only for now: the OAuth token is read from the login keychain.
 
 ## Usage
 
-| command                  | what it does                                                  |
-| ------------------------ | ------------------------------------------------------------- |
-| `claude-usage`           | report, refreshing only if the cache is older than 10 minutes |
-| `claude-usage --cached`  | print instantly from cache, refresh in the background         |
-| `claude-usage --fresh`   | force a refresh now                                           |
-| `claude-usage --oneline` | `5h 15% · 7d 32% · fable 14%`                                 |
-| `claude-usage --json`    | the raw endpoint payload                                      |
-| `claude-usage --watch`   | redraw every 60s                                              |
+| command                  | what it does                                          |
+| ------------------------ | ----------------------------------------------------- |
+| `claude-usage`           | the report, printed from cache and refreshed behind you |
+| `claude-usage --oneline` | `5h 15% · 7d 32% · fable 14%`                         |
 
-`cu` is aliased to `claude-usage --fresh`.
+`cu` is aliased to `claude-usage`.
 
 ## Where the numbers come from
 
@@ -81,9 +77,9 @@ in-memory backoff would be no backoff at all.
 payload and adds an `as of 12m ago` note. Your prompt does not get a stack trace
 because an endpoint was grumpy.
 
-`--cached`, which is what the shell hook calls, never blocks on the network at
-all: it prints what is on disk and forks the refresh. Cold start is one blocking
-fetch so the first run is not empty; after that it is a file read.
+There is only one mode, and it never blocks on the network: every run prints what
+is on disk and forks the refresh when the cache is past its TTL. Cold start is
+one blocking fetch so the first run is not empty; after that it is a file read.
 
 ## What this is not
 

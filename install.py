@@ -27,9 +27,9 @@ ZSHRC = Path.home() / ".zshrc"
 MARKER = f"# {COMMAND}"
 HOOK = f"""
 {MARKER}: plan usage on every new shell, served from cache
-alias cu='{COMMAND} --fresh'
+alias cu='{COMMAND}'
 if [[ -o interactive ]] && command -v {COMMAND} >/dev/null; then
-  {COMMAND} --cached
+  {COMMAND}
 fi
 """
 
@@ -86,7 +86,7 @@ def main():
     link_command(source)
     add_shell_hook()
     print()
-    subprocess.run([str(TARGET), "--cached"])
+    subprocess.run([str(TARGET)])
 
 
 if __name__ == "__main__":
